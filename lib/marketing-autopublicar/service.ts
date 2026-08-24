@@ -1,10 +1,5 @@
 import 'server-only';
 import crypto from 'crypto';
-import fs from 'fs/promises';
-import path from 'path';
-import OpenAI from 'openai';
-import { OpenAIProvider } from '@/lib/plugins/ai-chat/providers/openai';
-import { GeminiProvider } from '@/lib/plugins/ai-chat/providers/gemini';
 import { morfGenerate } from '@/lib/morf-ai/runtime/generate';
 import { client } from '@/lib/db/drizzle';
 import { callZernio, zernioApiKey } from '@/lib/zernio/client';
@@ -1223,36 +1218,6 @@ function safeJsonParseFromText(value: unknown) {
   return null;
 }
 
-async function getGlobalAiConfig(teamId: number) {
-  const [row] = await sql.unsafe(
-    `SELECT id, team_id, provider, model, api_key, system_prompt, temperature, max_output_tokens, is_active
-     FROM ai_configs
-     WHERE team_id = $1 AND is_active = true
-     ORDER BY updated_at DESC, id DESC
-     LIMIT 1`,
-    [teamId]
-  ).catch(() => []);
-  return row || null;
-}
-
-async function tryGenerateImageWithOpenAi(teamId: number, prompt: string, apiKey: string | null | undefined) {
-  if (!apiKey || !prompt) return null;
-  try {
-    const openai = new OpenAI({ apiKey }) as any;
-    const res = await openai.images.generate({ model: 'gpt-image-1', prompt, size: '1024x1024' });
-    const b64 = res?.data?.[0]?.b64_json;
-    if (!b64) return null;
-    const dir = path.join(process.cwd(), 'public', 'uploads', 'autopublicar', String(teamId));
-    await fs.mkdir(dir, { recursive: true });
-    const fileName = `auto-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.png`;
-    await fs.writeFile(path.join(dir, fileName), Buffer.from(b64, 'base64'));
-    return `/uploads/autopublicar/${teamId}/${fileName}`;
-  } catch (error: any) {
-    await addEventLogSafe(teamId, 'ai.image_generate', 'warning', { message: error?.message || String(error) });
-    return null;
-  }
-}
-
 async function addEventLogSafe(teamId: number, eventType: string, status: string, metadata: Record<string, any>) {
   try {
     await ensureAutopublishSqlReady();
@@ -1275,8 +1240,7 @@ export async function generateAutopublishContent(teamId: number, body: any) {
     products = result.products.slice(0, Math.max(1, Number(body?.productLimit || 4)));
   }
   const fallback = buildProductFallback({ products, keywords, colors, tone: body?.tone, brandName: body?.brandName });
-  const aiConfig = await getGlobalAiConfig(teamId);
-  let generated = { ...fallback, aiUsed: false, aiProvider: aiConfig?.provider || null, aiError: null as string | null };
+  let generated = { ...fallback, aiUsed: false, aiProvider: 'codemorf', aiError: null as string | null };
   if (body?.useAi !== false) {
     try {
       const prompt = [
@@ -1288,8 +1252,9 @@ export async function generateAutopublishContent(teamId: number, body: any) {
         products.length ? `Productos/stock: ${products.map((p) => `${p.name} | ${p.category || ''} | precio ${p.price || ''} ${p.currency || ''} | stock ${p.stock ?? 'N/D'} | ${p.description || ''}`).join('\n')}` : '',
         'No inventes disponibilidad. Si el stock es bajo, usa urgencia sin exagerar. Incluye CTA por DM.',
       ].filter(Boolean).join('\n');
-      // Fase 9 (§F9): Morf-first — el runtime global decide el proveedor. Si
-      // Morf no está disponible, cae al config legado del team (ai_configs).
+      // CodeMorf es el único proveedor permitido para Autopublicación. Si no
+      // responde, se conserva un borrador seguro y nunca se usa un proveedor
+      // externo o una clave legacy.
       let parsed: any = null;
       try {
         const morfRes = await morfGenerate(
@@ -1299,32 +1264,24 @@ export async function generateAutopublishContent(teamId: number, body: any) {
             capability: 'structured_output',
             responseFormat: { type: 'json_object' },
             messages: [
-              { role: 'system', content: asString(aiConfig?.system_prompt, 'Eres un copywriter experto en ventas para redes sociales.') },
+              { role: 'system', content: 'Eres un copywriter experto en ventas para redes sociales. Responde en español dominicano neutro, de forma natural, clara y comercial.' },
               { role: 'user', content: prompt },
             ],
-            metadata: { channel: 'social', feature: 'autopublish_caption' },
+            metadata: { channel: 'social', feature: 'autopublish_caption', provider_policy: 'codemorf_only' },
           },
           { timeoutMs: 15000 }
         );
         if (morfRes.ok && morfRes.text) {
           parsed = safeJsonParseFromText(morfRes.text);
         } else if (!morfRes.ok) {
-          console.warn('[autopublicar:caption:morf] no disponible, usando config legado:', morfRes.reason, morfRes.message);
+          generated.aiError = `${morfRes.reason || 'codemorf_unavailable'}: ${morfRes.message || 'sin respuesta'}`;
+          console.warn('[autopublicar:codemorf-only] no disponible:', generated.aiError);
+          await addEventLogSafe(teamId, 'ai.caption_failed', 'warning', { message: generated.aiError, provider: 'codemorf', providerPolicy: 'codemorf_only' });
         }
       } catch (error: any) {
-        console.warn('[autopublicar:caption:morf] falló, usando config legado:', error?.message || error);
-      }
-      if (!parsed && aiConfig?.api_key) {
-        const Provider = String(aiConfig.provider).toLowerCase() === 'gemini' ? GeminiProvider : OpenAIProvider;
-        const provider = new Provider({
-          apiKey: String(aiConfig.api_key),
-          model: asString(aiConfig.model, String(aiConfig.provider).toLowerCase() === 'gemini' ? 'gemini-2.5-flash' : 'gpt-4o-mini'),
-          systemPrompt: asString(aiConfig.system_prompt, 'Eres un copywriter experto en ventas para redes sociales.'),
-          temperature: Number(aiConfig.temperature ?? 0.7),
-          maxOutputTokens: Number(aiConfig.max_output_tokens ?? 1000),
-        } as any);
-        const res: any = await provider.generateResponse([{ role: 'user', content: prompt }] as any[]);
-        parsed = safeJsonParseFromText(res?.content);
+        generated.aiError = error?.message || String(error);
+        console.warn('[autopublicar:codemorf-only] falló:', generated.aiError);
+        await addEventLogSafe(teamId, 'ai.caption_failed', 'warning', { message: generated.aiError, provider: 'codemorf', providerPolicy: 'codemorf_only' });
       }
       if (parsed) {
         generated = {
@@ -1338,28 +1295,29 @@ export async function generateAutopublishContent(teamId: number, body: any) {
           fallback: false,
         };
       }
-      if (!generated.aiUsed && aiConfig?.is_active && !aiConfig?.api_key) {
-        await addEventLogSafe(teamId, 'ai.caption_fallback', 'warning', { message: 'IA activa sin API key. Se usó plantilla automática.', provider: aiConfig.provider });
+      if (!generated.aiUsed && !generated.aiError) {
+        generated.aiError = 'codemorf_invalid_structured_output';
+        await addEventLogSafe(teamId, 'ai.caption_failed', 'warning', { message: generated.aiError, provider: 'codemorf', providerPolicy: 'codemorf_only' });
       }
     } catch (error: any) {
       generated.aiError = error?.message || String(error);
-      await addEventLogSafe(teamId, 'ai.caption_fallback', 'warning', { message: generated.aiError, provider: aiConfig.provider });
+      await addEventLogSafe(teamId, 'ai.caption_failed', 'warning', { message: generated.aiError, provider: 'codemorf', providerPolicy: 'codemorf_only' });
     }
   }
   const wantImage = Boolean(body?.generateImage || body?.imageMode === 'ai');
-  if (wantImage && String(aiConfig?.provider || '').toLowerCase() === 'openai' && aiConfig?.api_key) {
-    const imageUrl = await tryGenerateImageWithOpenAi(teamId, generated.imagePrompt, aiConfig.api_key);
-    if (imageUrl) {
-      generated.mediaUrl = imageUrl;
-      generated.mediaItems = [{ type: 'image', url: imageUrl }, ...generated.mediaItems].slice(0, 10);
-    }
+  if (wantImage) {
+    await addEventLogSafe(teamId, 'ai.image_generate', 'warning', {
+      message: 'CodeMorf no expone generación de imágenes en este módulo; se conservaron las imágenes reales del producto.',
+      provider: 'codemorf',
+      providerPolicy: 'codemorf_only',
+    });
   }
   return {
     status: true,
     content: generated,
     products,
-    source: generated.aiUsed ? 'global_ai' : 'fallback_products',
-    message: generated.aiError ? 'La IA global falló; se generó contenido con plantilla y productos reales.' : 'Contenido generado.',
+    source: generated.aiUsed ? 'codemorf' : 'fallback_products',
+    message: generated.aiError ? 'CodeMorf no estuvo disponible; se preparó un borrador con productos reales y no se programó publicación automática.' : 'Contenido generado por CodeMorf.',
   };
 }
 
@@ -1437,25 +1395,33 @@ export async function generateAutomaticPosts(teamId: number | null, limit: numbe
     const tId = Number(row.team_id);
     const settings = await getAutopublishAutomationSettings(tId);
     const auto = settings.autopublish;
+    const lastRunMs = auto.lastRunAt ? Date.parse(String(auto.lastRunAt)) : 0;
+    const frequencyMs = Math.max(1, Number(auto.frequencyHours || 24)) * 60 * 60 * 1000;
+    if (lastRunMs && Number.isFinite(lastRunMs) && Date.now() - lastRunMs < frequencyMs) {
+      items.push({ teamId: tId, status: 'skipped', reason: 'frequency_not_elapsed', nextRunAt: new Date(lastRunMs + frequencyMs).toISOString() });
+      continue;
+    }
     const accounts = await listPublishReadyAccounts(tId);
     if (!accounts.length) { items.push({ teamId: tId, status: 'skipped', reason: 'no_accounts' }); continue; }
     const channels = accounts.slice(0, Math.max(1, Math.min(accounts.length, 10))).map((a) => ({ connectionId: a.id, zernioAccountId: a.zernioAccountId, platform: a.platform }));
     for (let i = 0; i < Math.max(1, Math.min(5, auto.postsPerRun)); i++) {
       const generated = await generateAutopublishContent(tId, { keywords: auto.keywords, colors: auto.colors, tone: auto.tone, productLimit: auto.productLimit, generateImage: auto.generateImage });
-      const scheduledAt = auto.autoPublish ? new Date(Date.now() + Math.max(1, auto.scheduleDelayMinutes) * 60_000).toISOString() : null;
+      const aiReady = !generated.content.aiError;
+      const scheduleMode = auto.autoPublish && aiReady ? 'schedule' : 'draft';
+      const scheduledAt = scheduleMode === 'schedule' ? new Date(Date.now() + Math.max(1, auto.scheduleDelayMinutes) * 60_000).toISOString() : null;
       const created = await createPost(tId, null, {
         title: generated.content.title,
         body: generated.content.body,
         mediaUrl: generated.content.mediaUrl,
         mediaItems: generated.content.mediaItems,
         channels,
-        scheduleMode: auto.autoPublish ? 'schedule' : 'draft',
+        scheduleMode,
         scheduledAt,
         timezone: 'America/Santo_Domingo',
         tags: generated.content.hashtags || [],
         uiSource: 'cron_auto_generate',
       }, crypto.randomUUID());
-      items.push({ teamId: tId, created });
+      items.push({ teamId: tId, status: aiReady ? 'created' : 'draft_ai_unavailable', created });
     }
     const meta = parseJsonObject(settings.metadata);
     await updateMarketingSettings(tId, { metadata: { ...meta, autopublish: { ...auto, lastRunAt: new Date().toISOString() } } });

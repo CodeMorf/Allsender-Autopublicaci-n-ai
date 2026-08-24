@@ -33,8 +33,12 @@ test('SALES-POLICY-002: Venta AI deja únicamente CodeMorf', () => {
   assert.deepEqual(scopeSalesAiProviders([record('openrouter'), record('openai'), record('codemorf')]).map((p) => p.code), ['codemorf']);
 });
 
-test('AUTO-CALENDAR-POLICY-001: Auto Calendario no usa fallback externo', () => {
+test('AUTONOMOUS-MODULE-POLICY-001: módulos autónomos no usan fallback externo', () => {
   assert.equal(isCodeMorfOnlyModuleCode('auto_calendar'), true);
   assert.equal(isCodeMorfOnlyModuleCode('auto-cita'), true);
-  assert.equal(isCodeMorfOnlyModuleCode('marketing_ai'), false);
+  assert.equal(isCodeMorfOnlyModuleCode('comments_ai'), true);
+  assert.equal(isCodeMorfOnlyModuleCode('comentarios-ia'), true);
+  assert.equal(isCodeMorfOnlyModuleCode('marketing_ai'), true);
+  assert.equal(isCodeMorfOnlyModuleCode('autopublicar'), true);
+  assert.equal(isCodeMorfOnlyModuleCode('openrouter'), false);
 });

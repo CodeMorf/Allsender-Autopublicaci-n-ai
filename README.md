@@ -17,4 +17,4 @@ pnpm exec tsc --noEmit --pretty false
 pnpm build
 ```
 
-La publicación de este espejo no sustituye el despliegue del monorepo ni la verificación E2E con una cuenta Zernio conectada.
+La publicación de este espejo no sustituye el despliegue del monorepo ni la verificación E2E con una cuenta Zernio conectada. Autopublicación usa únicamente CodeMorf; si no responde, deja un borrador y no programa contenido generado automáticamente.

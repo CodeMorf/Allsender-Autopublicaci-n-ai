@@ -4,7 +4,7 @@ import { cleanupAutopublish, verifyAutopublishCronKey } from '@/lib/marketing-au
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const key = request.nextUrl.searchParams.get('key');
+  const key = request.headers.get('x-cron-secret') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || request.nextUrl.searchParams.get('key');
   if (!(await verifyAutopublishCronKey(key))) return NextResponse.json({ status: false, code: 'INVALID_CRON_KEY' }, { status: 401 });
   const teamId = Number(request.nextUrl.searchParams.get('teamId') || 0) || null;
   return NextResponse.json(await cleanupAutopublish(teamId));

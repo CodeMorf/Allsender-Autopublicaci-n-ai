@@ -1,6 +1,6 @@
 import type { MorfProviderCode, MorfProviderRecord } from './types';
 
-/** Venta AI y Auto Calendario usan exclusivamente el gateway CodeMorf. */
+/** Los módulos autónomos de atención y marketing usan exclusivamente CodeMorf. */
 export const SALES_AI_PROVIDER_CODE: MorfProviderCode = 'codemorf';
 export const SALES_AI_MODEL = 'morf-ai-auto';
 
@@ -13,6 +13,11 @@ const CODEMORF_ONLY_MODULE_CODES = new Set([
   'auto_calendar',
   'auto-cita',
   'auto_cita',
+  'comments_ai',
+  'comentarios-ia',
+  'marketing_ai',
+  'autopublicar',
+  'auto_publish',
 ]);
 
 export function isSalesAiModuleCode(moduleCode: unknown): boolean {
