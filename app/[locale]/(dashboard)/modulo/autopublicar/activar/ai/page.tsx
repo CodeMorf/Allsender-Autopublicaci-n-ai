@@ -1,0 +1,34 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { Bot, CalendarClock, Image as ImageIcon, Loader2, Save, ShieldCheck, Sparkles } from 'lucide-react';
+
+export default function AutopublicarAiPage() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [form, setForm] = useState({ autoEnabled: false, autoPublish: false, frequencyHours: 24, postsPerRun: 1, keywords: '', colors: '#E0B84F, #111827, #FFFFFF', tone: 'profesional, moderno, vendedor', productLimit: 4, generateImage: false, scheduleDelayMinutes: 5 });
+
+  async function load() {
+    setLoading(true);
+    const res = await fetch('/api/marketing/autopublicar/ai/settings', { cache: 'no-store' }).then(r => r.json()).catch(() => null);
+    const auto = res?.settings?.autopublish;
+    if (auto) setForm({ ...form, ...auto });
+    setLoading(false);
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function save() {
+    setSaving(true); setMessage('');
+    try {
+      const res = await fetch('/api/marketing/autopublicar/ai/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) }).then(r => r.json());
+      if (!res.status) throw new Error(res.message || 'No se pudo guardar.');
+      setMessage('Configuración guardada. Tu marketing automático usará esta configuración.');
+    } catch (e: any) { setMessage(e?.message || 'Error guardando.'); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Cargando...</div>;
+
+  return <div className="min-h-screen overflow-auto bg-gradient-to-br from-slate-50 via-amber-50/40 to-white px-4 py-8"><div className="mx-auto max-w-5xl space-y-6"><div className="rounded-[2rem] border bg-white p-6 shadow-sm"><div className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800"><Bot className="h-4 w-4" /> Marketing automático</div><h1 className="mt-3 text-3xl font-black text-slate-950">Configura tu marketing inteligente</h1><p className="mt-2 text-sm text-slate-600">Reutiliza la IA activa del equipo para crear textos, ideas e imágenes desde tus productos reales. Si la IA no está disponible, Allsender usa el catálogo, stock e imágenes existentes.</p></div>{message && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">{message}</div>}<div className="grid gap-6 lg:grid-cols-[1fr_.8fr]"><section className="rounded-[2rem] border bg-white p-6 shadow-sm"><h2 className="mb-4 text-xl font-black">Configuración automática</h2><div className="space-y-4"><label className="flex items-center justify-between rounded-2xl border p-4"><span><b>Activar ideas automáticas</b><br/><small className="text-slate-500">Allsender puede preparar publicaciones usando tus productos.</small></span><input type="checkbox" checked={form.autoEnabled} onChange={e=>setForm({...form, autoEnabled:e.target.checked})} /></label><label className="flex items-center justify-between rounded-2xl border p-4"><span><b>Publicar automáticamente</b><br/><small className="text-slate-500">Si está activo, deja publicaciones listas para salir en tus horarios.</small></span><input type="checkbox" checked={form.autoPublish} onChange={e=>setForm({...form, autoPublish:e.target.checked})} /></label><label className="flex items-center justify-between rounded-2xl border p-4"><span><b>Crear imágenes con IA</b><br/><small className="text-slate-500">Opcional. Si no está disponible, usa las imágenes reales del producto.</small></span><input type="checkbox" checked={form.generateImage} onChange={e=>setForm({...form, generateImage:e.target.checked})} /></label><div className="grid gap-3 md:grid-cols-2"><input type="number" min="1" value={form.frequencyHours} onChange={e=>setForm({...form, frequencyHours:Number(e.target.value)})} className="rounded-2xl border px-4 py-3 text-sm" placeholder="Cada cuántas horas" /><input type="number" min="1" max="5" value={form.postsPerRun} onChange={e=>setForm({...form, postsPerRun:Number(e.target.value)})} className="rounded-2xl border px-4 py-3 text-sm" placeholder="Publicaciones por turno" /><input type="number" min="1" max="10" value={form.productLimit} onChange={e=>setForm({...form, productLimit:Number(e.target.value)})} className="rounded-2xl border px-4 py-3 text-sm" placeholder="Productos a analizar" /><input type="number" min="1" value={form.scheduleDelayMinutes} onChange={e=>setForm({...form, scheduleDelayMinutes:Number(e.target.value)})} className="rounded-2xl border px-4 py-3 text-sm" placeholder="Separación en minutos" /></div><textarea value={form.keywords} onChange={e=>setForm({...form, keywords:e.target.value})} className="min-h-24 w-full rounded-2xl border px-4 py-3 text-sm" placeholder="Palabras clave separadas por coma" /><input value={form.colors} onChange={e=>setForm({...form, colors:e.target.value})} className="w-full rounded-2xl border px-4 py-3 text-sm" placeholder="Colores" /><textarea value={form.tone} onChange={e=>setForm({...form, tone:e.target.value})} className="min-h-20 w-full rounded-2xl border px-4 py-3 text-sm" placeholder="Tono" /><button onClick={save} disabled={saving} className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60"><Save className="mr-2 h-4 w-4" /> {saving ? 'Guardando...' : 'Guardar configuración'}</button></div></section><aside className="space-y-4"><div className="rounded-[2rem] border bg-white p-5 shadow-sm"><h3 className="flex items-center gap-2 font-black"><ShieldCheck className="h-5 w-5 text-emerald-600" /> Control seguro</h3><p className="mt-2 text-sm text-slate-600">Solo publica en redes conectadas por el cliente y respeta el plan activo.</p></div><div className="rounded-[2rem] border bg-white p-5 shadow-sm"><h3 className="flex items-center gap-2 font-black"><CalendarClock className="h-5 w-5 text-blue-600" /> Calendario activo</h3><p className="mt-2 text-sm text-slate-600">Programa campañas, separa publicaciones y evita publicar todos los productos al mismo tiempo.</p></div><div className="rounded-[2rem] border bg-white p-5 shadow-sm"><h3 className="flex items-center gap-2 font-black"><ImageIcon className="h-5 w-5 text-amber-600" /> Imágenes</h3><p className="mt-2 text-sm text-slate-600">Primero usa imágenes reales del producto. La imagen IA es opcional y nunca detiene la campaña.</p></div><a href="/es/modulo/autopublicar" className="inline-flex w-full justify-center rounded-2xl bg-amber-400 px-5 py-3 text-sm font-black text-slate-950"><Sparkles className="mr-2 h-4 w-4" /> Volver a Autopublicar</a></aside></div></div></div>;
+}

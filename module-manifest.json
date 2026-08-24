@@ -1,0 +1,14 @@
+{
+  "runtime": "AllSender Auth",
+  "name": "allsender-autopublicacion-ai",
+  "providerPolicy": {
+    "fallbackExternalProviders": true,
+    "llm": "codemorf-first"
+  },
+  "source": "CodeMorf/omnichannel-",
+  "safety": {
+    "cronRequiresToken": true,
+    "tenantScoped": true
+  },
+  "version": "2026.08.24-baseline"
+}
